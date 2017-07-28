@@ -34,6 +34,9 @@ namespace Microsoft.Extensions.Configuration.Binder.Test
             {
                 get { return null; }
             }
+
+            [TypeConverter(typeof(Int32Converter))]
+            public object ObjectWithTypeConverter { get; set; }
         }
 
         public class NestedOptions
@@ -435,6 +438,23 @@ namespace Microsoft.Extensions.Configuration.Binder.Test
             Assert.True(options.Boolean);
             Assert.Equal(-2, options.Integer);
             Assert.Equal(11, options.Nested.Integer);
+        }
+
+        [Fact]
+        public void GetCanReadComplexPropertiesWithTypeConverters()
+        {
+            var dic = new Dictionary<string, string>
+            {
+                {"ObjectWithTypeConverter", "2"}
+            };
+            var configurationBuilder = new ConfigurationBuilder();
+            configurationBuilder.AddInMemoryCollection(dic);
+            var config = configurationBuilder.Build();
+
+            var options = new ComplexOptions();
+            config.Bind(options);
+
+            Assert.Equal(2, options.ObjectWithTypeConverter);
         }
 
         [Fact]

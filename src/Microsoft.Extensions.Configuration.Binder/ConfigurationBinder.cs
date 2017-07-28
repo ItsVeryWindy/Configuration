@@ -53,7 +53,7 @@ namespace Microsoft.Extensions.Configuration
                 throw new ArgumentNullException(nameof(configuration));
             }
 
-            return BindInstance(type, instance: null, config: configuration);
+            return BindInstance(type, converter: null, instance: null, config: configuration);
         }
 
         /// <summary>
@@ -79,7 +79,7 @@ namespace Microsoft.Extensions.Configuration
 
             if (instance != null)
             {
-                BindInstance(instance.GetType(), instance, configuration);
+                BindInstance(instance.GetType(), null, instance, configuration);
             }
         }
 
@@ -169,12 +169,29 @@ namespace Microsoft.Extensions.Configuration
                 return;
             }
 
-            propertyValue = BindInstance(property.PropertyType, propertyValue, config.GetSection(property.Name));
+            var converter = GetTypeConverter(property);
+
+            propertyValue = BindInstance(property.PropertyType, converter, propertyValue, config.GetSection(property.Name));
 
             if (propertyValue != null && hasPublicSetter)
             {
                 property.SetValue(instance, propertyValue);
             }
+        }
+
+        private static TypeConverter GetTypeConverter(PropertyInfo property)
+        {
+            var converterAttr = property.GetCustomAttribute<TypeConverterAttribute>();
+
+            if (converterAttr == null)
+                return null;
+
+            var type = Type.GetType(converterAttr.ConverterTypeName, false, false);
+
+            if (type == null)
+                return null;
+
+            return Activator.CreateInstance(type) as TypeConverter;
         }
 
         private static object BindToCollection(TypeInfo typeInfo, IConfiguration config)
@@ -243,7 +260,7 @@ namespace Microsoft.Extensions.Configuration
             return null;
         }
 
-        private static object BindInstance(Type type, object instance, IConfiguration config)
+        private static object BindInstance(Type type, TypeConverter converter, object instance, IConfiguration config)
         {
             // if binding IConfigurationSection, break early
             if (type == typeof(IConfigurationSection))
@@ -255,7 +272,7 @@ namespace Microsoft.Extensions.Configuration
             var configValue = section?.Value;
             object convertedValue;
             Exception error;
-            if (configValue != null && TryConvertValue(type, configValue, out convertedValue, out error))
+            if (configValue != null && TryConvertValue(type, converter, configValue, out convertedValue, out error))
             {
                 if (error != null)
                 {
@@ -365,6 +382,7 @@ namespace Microsoft.Extensions.Configuration
             {
                 var item = BindInstance(
                     type: valueType,
+                    converter: null,
                     instance: null,
                     config: child);
                 if (item != null)
@@ -397,6 +415,7 @@ namespace Microsoft.Extensions.Configuration
                 {
                     var item = BindInstance(
                         type: itemType,
+                        converter: null,
                         instance: null,
                         config: section);
                     if (item != null)
@@ -429,6 +448,7 @@ namespace Microsoft.Extensions.Configuration
                 {
                     var item = BindInstance(
                         type: elementType,
+                        converter: null,
                         instance: null,
                         config: children[i]);
                     if (item != null)
@@ -444,11 +464,11 @@ namespace Microsoft.Extensions.Configuration
             return newArray;
         }
 
-        private static bool TryConvertValue(Type type, string value, out object result, out Exception error)
+        private static bool TryConvertValue(Type type, TypeConverter converter, string value, out object result, out Exception error)
         {
             error = null;
             result = null;
-            if (type == typeof(object))
+            if (type == typeof(object) && converter == null)
             {
                 result = value;
                 return true;
@@ -460,10 +480,14 @@ namespace Microsoft.Extensions.Configuration
                 {
                     return true;
                 }
-                return TryConvertValue(Nullable.GetUnderlyingType(type), value, out result, out error);
+                return TryConvertValue(Nullable.GetUnderlyingType(type), converter, value, out result, out error);
             }
-  
-            var converter = TypeDescriptor.GetConverter(type);
+
+            if (converter == null)
+            {
+                converter = TypeDescriptor.GetConverter(type);
+            }
+
             if (converter.CanConvertFrom(typeof(string)))
             {
                 try
@@ -484,7 +508,7 @@ namespace Microsoft.Extensions.Configuration
         {
             object result;
             Exception error;
-            TryConvertValue(type, value, out result, out error);
+            TryConvertValue(type, null, value, out result, out error);
             if (error != null)
             {
                 throw error;
